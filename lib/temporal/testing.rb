@@ -1,6 +1,7 @@
 require 'temporal/testing/temporal_override'
 require 'temporal/testing/workflow_override'
 require 'temporal/testing/scheduled_workflows'
+require 'temporal/testing/deferred_starts'
 
 module Temporal
   module Testing
@@ -22,6 +23,32 @@ module Temporal
 
       def local?
         mode == LOCAL_MODE
+      end
+
+      # True when start_workflow calls should be deferred rather than run inline.
+      # Only meaningful in local mode.
+      def defer_starts?
+        local? && @defer_starts == true
+      end
+
+      # Within the block, fire-and-forget start_workflow calls are deferred instead
+      # of run inline; the queued workflows run when the block exits normally (after
+      # the caller's stack -- and any locks it held -- have unwound). This models the
+      # async ordering of a real Temporal server in local mode. See DeferredStarts.
+      def with_deferred_starts
+        previous = @defer_starts
+        @defer_starts = true
+        begin
+          result = yield
+          # Restore before draining so flushed workflows run inline (and could, in
+          # turn, start and await their own children).
+          @defer_starts = previous
+          DeferredStarts.execute_all
+          result
+        ensure
+          @defer_starts = previous
+          DeferredStarts.clear_all
+        end
       end
 
       private
