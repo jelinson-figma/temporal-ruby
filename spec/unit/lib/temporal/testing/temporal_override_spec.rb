@@ -141,6 +141,39 @@ describe Temporal::Testing::TemporalOverride do
         client.start_workflow(TestTemporalOverrideWorkflow)
         expect(workflow).to have_received(:execute)
       end
+
+      it 'runs every deferred workflow even if an earlier one fails' do
+        call_count = 0
+        allow(workflow).to receive(:execute) do
+          call_count += 1
+          raise 'boom' if call_count == 1
+        end
+
+        # The first deferred workflow is recorded as FAILED, not raised, so the drain
+        # continues to the second -- executions are independent, as on a real worker.
+        Temporal::Testing.with_deferred_starts do
+          client.start_workflow(TestTemporalOverrideWorkflow)
+          client.start_workflow(TestTemporalOverrideWorkflow)
+        end
+
+        expect(call_count).to eq(2)
+      end
+
+      it 'raises when nested' do
+        expect do
+          Temporal::Testing.with_deferred_starts do
+            Temporal::Testing.with_deferred_starts {}
+          end
+        end.to raise_error(/cannot be nested/)
+      end
+
+      it 'raises when not in local mode' do
+        Temporal::Testing.disabled! do
+          expect do
+            Temporal::Testing.with_deferred_starts {}
+          end.to raise_error(/requires Temporal::Testing.local!/)
+        end
+      end
     end
 
     describe 'Workflow.execute_locally' do

@@ -31,9 +31,12 @@ module Temporal
             end
 
             def execute_all
-              # Drain FIFO. By the time we drain, the defer flag has been cleared, so
-              # any workflow started during a drain runs inline and the queue does not
-              # grow here.
+              # Drain FIFO. The defer flag is cleared before we drain, so any workflow
+              # started during a drain runs inline and the queue does not grow here.
+              #
+              # Each runs independently, mirroring separate executions on a real worker:
+              # WorkflowExecution#run records a failed run as FAILED rather than raising,
+              # so one workflow failing does not abort the drain of the others.
               executions.shift.call until executions.empty?
             end
 
